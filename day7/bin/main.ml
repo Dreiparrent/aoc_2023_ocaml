@@ -6,28 +6,56 @@ KTJJT 220
 QQQJA 483
 ";;
 
-
-type handType =
-    | FiveOfKind
-    | FourOfKind
-    | FullHouse
-    | ThreeOfKind
-    | TwoPair
-    | OnePair
-    | High
-;;
+let is_part2 = false;;
 
 
-type game = {
-    hand: char list;
-    hand_map: (char, int) Hashtbl.t;
-    hand_type: handType;
-    bid: int;
-}
+module HandType : sig
+    type t =
+        | FiveOfKind
+        | FourOfKind
+        | FullHouse
+        | ThreeOfKind
+        | TwoPair
+        | OnePair
+        | High
+        | Joker of int
 
-let _print_game gm =
-    let get_hand_type hand_type =
-        match hand_type with
+    val enum_of_handType : t -> int
+    val _handType_of_enum : int -> t
+    val str_of_handType: t -> string
+end = struct
+    type t =
+        | FiveOfKind
+        | FourOfKind
+        | FullHouse
+        | ThreeOfKind
+        | TwoPair
+        | OnePair
+        | High
+        | Joker of int
+
+    let enum_of_handType = function
+        | FiveOfKind -> 7
+        | FourOfKind -> 6
+        | FullHouse -> 5
+        | ThreeOfKind -> 4
+        | TwoPair -> 3
+        | OnePair -> 2
+        | High -> 1
+        | Joker _ -> 0 (* Joker always maps to 0 *)
+
+    let _handType_of_enum = function
+        | 7 -> FiveOfKind
+        | 6 -> FourOfKind
+        | 5 -> FullHouse
+        | 4 -> ThreeOfKind
+        | 3 -> TwoPair
+        | 2 -> OnePair
+        | 1 -> High
+        | 0 -> Joker 0
+        | _ -> invalid_arg "Invalid enum value for handType"
+
+    let str_of_handType = function
         | FiveOfKind -> "FiveOfKind"
         | FourOfKind -> "FourOfKind"
         | FullHouse -> "FullHouse"
@@ -35,9 +63,22 @@ let _print_game gm =
         | TwoPair -> "TwoPair"
         | OnePair -> "OnePair"
         | High -> "High"
-    in
+        | Joker _ -> "joker" (* failwith "should not print" *)
+end
+
+
+type game = {
+    hand: char list;
+    hand_map: (char, int) Hashtbl.t;
+    hand_type: HandType.t;
+    bid: int;
+}
+
+let _print_game gm =
+    let hand_type_str = HandType.str_of_handType gm.hand_type in
     let hand_str = String.concat "" (List.map (String.make 1) gm.hand) in
-    Printf.printf "hand = %s; hand_type = %s; bid = %i" hand_str (get_hand_type gm.hand_type) gm.bid
+    Printf.printf "hand = %s; hand_type = %s; bid = %i" hand_str hand_type_str gm.bid
+;;
 
 let rec _print_games list =
     match list with
@@ -66,32 +107,58 @@ let games =
                 let () = Hashtbl.add table hd 1 in
                 get_hand table tl
     in
-    let get_basic_hand key value acc =
-        match key, value with
-        | _, 5 -> FiveOfKind :: acc
-        | _, 4 -> FourOfKind :: acc
-        | _, 3 -> ThreeOfKind :: acc
-        | _, 2 -> OnePair :: acc
-        | _ -> High :: acc
+    let get_basic_hand _ value acc =
+        match value with
+        | 5 -> HandType.FiveOfKind :: acc
+        | 4 -> HandType.FourOfKind :: acc
+        | 3 -> HandType.ThreeOfKind :: acc
+        | 2 -> HandType.OnePair :: acc
+        | _ -> HandType.High :: acc
     in
-    let get_hand_calculated hand =
-        let hand_parsed = Hashtbl.fold get_basic_hand hand [] in
-        match hand_parsed with
-        | [FiveOfKind] -> FiveOfKind
-        | [FourOfKind; High] -> FourOfKind
-        | [High; FourOfKind] -> FourOfKind
-        | [ThreeOfKind; OnePair] -> FullHouse
-        | [OnePair; ThreeOfKind] -> FullHouse
-        | [ThreeOfKind; High; High] -> ThreeOfKind
-        | [High; ThreeOfKind; High] -> ThreeOfKind
-        | [High; High; ThreeOfKind] -> ThreeOfKind
-        | item ->
-            if List.length item = 3 then
-                TwoPair
-            else if List.mem OnePair item then
-                OnePair
+
+    let get_joker_hand hand =
+        let get_joker_vals key value (max_key, max_val, j, has_non_j) =
+            if key = 'J' then
+                (max_key, max_val, value, has_non_j)
             else
-                High
+                if value > max_val then
+                    (key, value, j, true)
+                else
+                    (max_key, max_val, j, true)
+        in
+        let (highest_key, highest_val, jokers, has_non_j) = Hashtbl.fold get_joker_vals  hand ('J', min_int, 0, false) in
+        if has_non_j then
+            let () = Hashtbl.replace hand highest_key (highest_val + jokers) in
+            let () = Hashtbl.remove hand 'J' in
+            hand
+        else
+            hand
+    in
+
+    let get_hand_calculated (hand: (char, int) Hashtbl.t) =
+        let joker_hand = match is_part2 with
+        | true -> get_joker_hand hand
+        | false -> hand
+        in
+        let hand_parsed = Hashtbl.fold get_basic_hand joker_hand [] in
+        let current_hand_val = match hand_parsed with
+            | [HandType.FiveOfKind] -> HandType.FiveOfKind
+            | [HandType.FourOfKind; HandType.High] -> HandType.FourOfKind
+            | [HandType.High; HandType.FourOfKind] -> HandType.FourOfKind
+            | [HandType.ThreeOfKind; HandType.OnePair] -> HandType.FullHouse
+            | [HandType.OnePair; HandType.ThreeOfKind] -> HandType.FullHouse
+            | [HandType.ThreeOfKind; HandType.High; HandType.High] -> HandType.ThreeOfKind
+            | [HandType.High; HandType.ThreeOfKind; HandType.High] -> HandType.ThreeOfKind
+            | [HandType.High; HandType.High; HandType.ThreeOfKind] -> HandType.ThreeOfKind
+            | item ->
+                if List.length item = 3 then
+                    HandType.TwoPair
+                else if List.mem HandType.OnePair item then
+                    HandType.OnePair
+                else
+                    HandType.High
+        in
+        current_hand_val
     in
     let rec get_final_games acc split_spc =
         let hand_map = Hashtbl.create 16 in
@@ -114,37 +181,26 @@ let games =
     List.rev (get_final_games [] input_split_space)
 ;;
 
-let _print_key_value key value =
-  Printf.printf "Key: %c, Value: %d\n" key value
-;;
-
-
 (* _print_games games;; *)
 
-
 let card_char_ordered =
-    "A K Q J T 9 8 7 6 5 4 3 2"
+    let part_card_order = match is_part2 with
+    | true -> "A K Q T 9 8 7 6 5 4 3 2 J"
+    | false -> "A K Q J T 9 8 7 6 5 4 3 2"
+    in
+    part_card_order
         |> String.split_on_char ' '
         |> String.concat ""
         |> String.to_seq
         |> List.of_seq
         |> List.rev
+;;
 
 let sort_hands (game_hands: game list) =
-    let get_hand_value hand_type =
-        match hand_type with
-        | FiveOfKind -> 6
-        | FourOfKind -> 5
-        | FullHouse -> 4
-        | ThreeOfKind -> 3
-        | TwoPair -> 2
-        | OnePair -> 1
-        | High -> 0
-    in
     let get_card_value card_char =
         let rec get_card_inner val_list idx =
             match val_list with
-            | [] -> failwith "impossible"
+            | [] -> failwith "invalid card supplied"
             | hd :: tl ->
                 if hd = card_char then
                     idx
@@ -168,7 +224,7 @@ let sort_hands (game_hands: game list) =
                     card_comparison
         in
         let compare_hands g1 g2 =
-            let hand_comparison = compare (get_hand_value g1.hand_type) (get_hand_value g2.hand_type) in
+            let hand_comparison = compare (HandType.enum_of_handType g1.hand_type) (HandType.enum_of_handType g2.hand_type) in
             if hand_comparison <> 0 then
                 hand_comparison
             else
